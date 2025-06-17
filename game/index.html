@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Тетрис</title>
+<style>
+  body {
+    background-color: #222;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: Arial, sans-serif;
+    margin-top: 20px;
+    color: #fff;
+  }
+  h1 {
+    margin-bottom: 10px;
+  }
+  #tetris {
+    border: 2px solid #fff;
+    background-color: #000;
+    position: relative;
+  }
+  canvas {
+    display: block;
+  }
+  #score {
+    margin-top: 10px;
+    font-size: 1.2em;
+  }
+</style>
+</head>
+<body>
+
+<h1>Тетрис</h1>
+<canvas id="tetris" width="240" height="400"></canvas>
+<div id="score">Очки: 0</div>
+
+<script>
+const canvas = document.getElementById('tetris');
+const ctx = canvas.getContext('2d');
+
+const ROWS = 20;
+const COLS = 10;
+const BLOCK_SIZE = 20;
+
+let score = 0;
+
+// Цвета фигур
+const colors = [
+  null,
+  'cyan',
+  'blue',
+  'orange',
+  'yellow',
+  'green',
+  'purple',
+  'red'
+];
+
+// Фигуры (формы)
+const shapes = [
+  [], // пустой
+  [[1,1,1,1]], // I
+  [[2,0,0],[2,2,2]], // J
+  [[0,0,3],[3,3,3]], // L
+  [[4,4],[4,4]], // O
+  [[0,5,5],[5,5,0]], // S
+  [[0,6,0],[6,6,6]], // T
+  [[7,7,0],[0,7,7]] // Z
+];
+
+// Создаем игровое поле
+let arena = createMatrix(ROWS,COLS);
+
+// Текущая фигура и её позиция
+let currentPiece = null;
+let currentX = null;
+let currentY = null;
+
+// Время падения фигур (мс)
+let dropCounter = 0;
+let dropInterval = 1000; // начальный интервал (1 секунда)
+let lastTime = null;
+
+// Создаем матрицу (игровое поле)
+function createMatrix(rows, cols) {
+    const matrix = [];
+    for (let i=0; i<rows; i++) {
+        matrix.push(new Array(cols).fill(0));
+    }
+    return matrix;
+}
+
+// Создаем новую фигуру
+function createPiece(type) {
+    return shapes[type];
+}
+
+// Вставляем новую фигуру в игру
+function newPiece() {
+    const type = Math.floor(Math.random() * (shapes.length -1)) +1; // от 1 до shapes.length-1
+    currentPiece = createPiece(type);
+    currentX = Math.floor(COLS/2) - Math.ceil(currentPiece[0].length/2);
+    currentY = -currentPiece.length; // начинаем чуть выше поля
+
+    if (collide(arena, currentPiece, currentX, currentY+1)) {
+        alert('Игра окончена!');
+        arena.forEach(row => row.fill(0));
+        score=0;
+        updateScore();
+        resetDropInterval();
+    }
+}
+
+// Проверка столкновений
+function collide(arena, piece, x,y) {
+    for (let r=0; r<piece.length; r++) {
+        for (let c=0; c<piece[r].length; c++) {
+            if (piece[r][c]) {
+                const newX = x + c;
+                const newY = y + r;
+                if (
+                    newX <0 || newX >= COLS ||
+                    newY >= ROWS ||
+                    (newY >=0 && arena[newY][newX])
+                ) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// Вращение фигуры по часовой стрелке
+function rotate(matrix) {
+    const result = [];
+    for(let c=0; c<matrix[0].length; c++) {
+        result[c] = [];
+        for(let r=matrix.length-1; r>=0; r--) {
+            result[c][matrix.length-1 - r] = matrix[r][c];
+        }
+    }
+    return result;
+}
+
+// Попытка повернуть фигуру
+function rotatePiece() {
+    const rotated = rotate(currentPiece);
+    
+    if (!collide(arena, rotated, currentX,currentY)) {
+        currentPiece=rotated;
+        draw();
+    }
+}
+
+// Перемещение фигуры влево/вправо/вниз
+function move(offsetX) {
+    if (!collide(arena,currentPiece,currentX+offsetX,currentY)) {
+        currentX+=offsetX;
+        draw();
+        return true;
+    }
+    return false;
+}
+
+function softDrop() {
+   if (!collide(arena,currentPiece,currentX,currentY+1)) {
+       currentY++;
+       draw();
+   } else {
+       lock();
+   }
+}
+
+function hardDrop() {
+   while(!collide(arena,currentPiece,currentX,currentY+1)){
+       currentY++;
+   }
+   lock();
+}
+
+// Зафиксировать фигуру на поле и проверить линии
+function lock() {
+   for(let r=0; r<currentPiece.length; r++) {
+       for(let c=0;c<currentPiece[r].length;c++) {
+           if(currentPiece[r][c]) {
+               const yPos=currentY+r;
+               const xPos=currentX+c;
+
+               if(yPos>=0 && yPos<ROWS && xPos>=0 && xPos<COLS){
+                   arena[yPos][xPos]=currentPiece[r][c];
+               }
+           }
+       }
+   }
+
+   clearLines();
+   newPiece();
+}
+
+// Очистка заполненных линий
+function clearLines() {
+   let linesCleared=0;
+
+   outer:
+   for(let y=ROWS-1;y>=0;y--) {
+       for(let x=0;x<COLS;x++) {
+           if(!arena[y][x]) continue outer; // если есть пустая ячейка - пропускаем линию
+       }
+
+       // если все заполнены - удаляем линию и добавляем сверху новую пустую строку
+       arena.splice(y,1);
+       arena.unshift(new Array(COLS).fill(0));
+       linesCleared++;
+       y++; // проверяем снова текущий индекс после удаления строки
+   }
+
+   if(linesCleared>0){
+       score+=linesCleared*100;
+       updateScore();
+       adjustDropInterval();
+   }
+}
+
+// Обновление очков на экране
+function updateScore() {
+ document.getElementById('score').textContent='Очки: '+score;
+}
+
+// Установка интервала падения в зависимости от уровня сложности
+function adjustDropInterval() {
+ if(score<500) dropInterval=1000;
+ else if(score<1000) dropInterval=700;
+ else if(score<2000) dropInterval=500;
+ else dropInterval=300;
+
+ resetDropInterval();
+}
+
+let intervalId=null;
+
+function resetDropInterval() {
+ if(intervalId) clearInterval(intervalId);
+ intervalId=setInterval(() => { softDrop(); }, dropInterval);
+}
+
+// Отрисовка поля и фигуры на канвасе
+function draw() {
+ ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+// Рисуем поле 
+for(let y=0;y<ROWS;y++){
+ for(let x=0;x<COLS;x++){
+     if(arena[y][x]){
+         ctx.fillStyle=colors[arena[y][x]];
+         ctx.fillRect(x*BLOCK_SIZE,y*BLOCK_SIZE,BLOCK_SIZE,BLOCK_SIZE);
+         ctx.strokeStyle='#555';
+         ctx.strokeRect(x*BLOCK_SIZE,y*BLOCK_SIZE,BLOCK_SIZE,BLOCK_SIZE);
+     } else{
+         ctx.fillStyle='#000';
+         ctx.fillRect(x*BLOCK_SIZE,y*BLOCK_SIZE,BLOCK_SIZE,BLOCK_SIZE);
+     }
+ }
+}
+// Рисуем текущую фигуру 
+if(currentPiece){
+ for(let r=0;r<currentPiece.length;r++){
+     for(let c=0;c<currentPiece[r].length;c++){
+         if(currentPiece[r][c]){
+             ctx.fillStyle=colors[currentPiece[r][c]];
+             ctx.fillRect((currentX+c)*BLOCK_SIZE,(currentY+r)*BLOCK_SIZE,BLOCK_SIZE,BLOCK_SIZE);
+             ctx.strokeStyle='#555';
+             ctx.strokeRect((currentX+c)*BLOCK_SIZE,(currentY+r)*BLOCK_SIZE,BLOCK_SIZE,BLOCK_SIZE);
+         }
+     }
+ }
+}
+}
+
+// Обработка клавиш управления
+document.addEventListener('keydown', e => {
+ switch(e.key){
+     case 'ArrowLeft':
+         move(-1);
+         break;
+     case 'ArrowRight':
+         move(1);
+         break;
+     case 'ArrowDown':
+         softDrop();
+         break;
+     case 'ArrowUp':
+         rotatePiece();
+         break;
+     case 'Space':
+         hardDrop();
+         break;
+}
+});
+
+// Инициализация игры
+newGame();
+
+function newGame() {
+ arena=createMatrix(ROWS,COLS);
+ score=0; 
+ updateScore(); 
+ newPiece(); 
+ resetDropInterval(); 
+ draw();
+}
+
+</script>
+
+</body>
+</html>

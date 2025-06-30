@@ -219,7 +219,11 @@ function clearLines() {
    }
 
    if(linesCleared>0){
-       score+=linesCleared*100;
+       let pointsEarned = linesCleared * 100;
+       if (linesCleared === 4) {
+           pointsEarned *= 2; // удваиваем очки за 4 линии
+       }
+       score += pointsEarned;
        updateScore();
        adjustDropInterval();
    }
